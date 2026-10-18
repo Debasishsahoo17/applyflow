@@ -1,0 +1,71 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+enum ApplicationStatus {
+  WISHLIST
+  APPLIED
+  ASSESSMENT
+  INTERVIEW
+  OFFER
+  REJECTED
+  WITHDRAWN
+}
+
+model Company {
+  id           String        @id @default(cuid())
+  name         String
+  website      String?
+  industry     String?
+  location     String?
+  applications Application[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([name])
+}
+
+model Application {
+  id          String            @id @default(cuid())
+  jobTitle    String
+  jobUrl      String?
+  status      ApplicationStatus @default(WISHLIST)
+  location    String?
+  salary      String?
+  appliedAt   DateTime?
+  notes       String?
+  companyId   String
+  company     Company           @relation(fields: [companyId], references: [id])
+  interviews  Interview[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([status])
+  @@index([companyId])
+}
+
+model Interview {
+  id            String      @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  round         String
+  scheduledAt   DateTime
+  meetingUrl    String?
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([scheduledAt])
+}
+
