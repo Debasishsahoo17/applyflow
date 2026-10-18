@@ -73,6 +73,8 @@ export default function Home() {
   const [activeNav, setActiveNav] = useState("Overview");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
@@ -136,15 +138,50 @@ export default function Home() {
   const count = (status: Status) =>
     applications.filter((app) => app.status === status).length;
 
+  function openAdd() {
+    setEditingId(null);
+    setCompany(""); setRole(""); setLocation(""); setStatus("Applied");
+    setShowModal(true);
+  }
+
+  function openEdit(app: Application) {
+    setEditingId(app.id);
+    setCompany(app.company);
+    setRole(app.role);
+    setLocation(app.location === "Location not specified" ? "" : app.location);
+    setStatus(app.status);
+    setShowModal(true);
+  }
+
+  async function deleteApplication(app: Application) {
+    if (!window.confirm(`Delete ${app.company} — ${app.role}? This cannot be undone.`)) return;
+    setDeletingId(app.id);
+    try {
+      const response = await fetch("/api/applications", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: app.id }),
+      });
+      const data: { success: boolean; error?: string } = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Delete failed");
+      setApplications(current => current.filter(item => item.id !== app.id));
+      setNotice("Application deleted.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not delete application.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   async function addApplication(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (saving) return;
     setSaving(true);
     try {
       const response = await fetch("/api/applications", {
-        method: "POST",
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editingId ? { id: editingId } : {}),
           companyName: company.trim(),
           jobTitle: role.trim(),
           location: location.trim() || null,
@@ -155,13 +192,17 @@ export default function Home() {
       if (!response.ok || !data.success || !data.application) {
         throw new Error(data.error || "Could not save application");
       }
-      setApplications(current => [fromDb(data.application!), ...current]);
+      const saved = fromDb(data.application);
+      setApplications(current => editingId
+        ? current.map(app => app.id === editingId ? saved : app)
+        : [saved, ...current]);
       setCompany("");
       setRole("");
       setLocation("");
       setStatus("Applied");
       setShowModal(false);
-      setNotice("Application saved to PostgreSQL.");
+      setEditingId(null);
+      setNotice(editingId ? "Application updated in PostgreSQL." : "Application saved to PostgreSQL.");
     } catch (error) {
       console.error(error);
       setNotice(error instanceof Error ? error.message : "Could not save application.");
@@ -278,7 +319,7 @@ export default function Home() {
                 Your career dashboard
               </span>
               <button
-                onClick={() => setShowModal(true)}
+                onClick={openAdd}
                 className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-indigo-200 transition hover:bg-indigo-700 sm:text-sm"
               >
                 <span className="mr-1">+</span> Add application
@@ -298,7 +339,7 @@ export default function Home() {
                 </p>
               </div>
               <button
-                onClick={() => setShowModal(true)}
+                onClick={openAdd}
                 className="hidden rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold shadow-sm hover:bg-slate-50 sm:block"
               >
                 + Track a new role
@@ -403,7 +444,7 @@ export default function Home() {
                     </div>
                   </div>
                   <button
-                    onClick={() => setShowModal(true)}
+                    onClick={openAdd}
                     className="w-full rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-700"
                   >
                     + Add another opportunity
@@ -450,6 +491,7 @@ export default function Home() {
                       <th className="px-4 py-4">Date added</th>
                       <th className="px-4 py-4">Status</th>
                       <th className="px-6 py-4 text-right">Update status</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -491,11 +533,15 @@ export default function Home() {
                             ))}
                           </select>
                         </td>
+                        <td className="px-6 py-4 text-right whitespace-nowrap">
+                          <button onClick={() => openEdit(app)} className="mr-3 text-xs font-semibold text-indigo-600 hover:underline">Edit</button>
+                          <button disabled={deletingId === app.id} onClick={() => void deleteApplication(app)} className="text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50">{deletingId === app.id ? "Deleting..." : "Delete"}</button>
+                        </td>
                       </tr>
                     ))}
                     {filteredApplications.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-6 py-12 text-center text-sm text-slate-500">
+                        <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">
                           {loading ? "Loading applications..." : "No applications match your search. Try another filter or add a new application."}
                         </td>
                       </tr>
@@ -536,7 +582,7 @@ export default function Home() {
           <div role="dialog" aria-modal="true" aria-labelledby="modal-title" className="my-8 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
             <div className="mb-6 flex items-start justify-between">
               <div>
-                <h2 id="modal-title" className="text-xl font-bold">Track an application</h2>
+                <h2 id="modal-title" className="text-xl font-bold">{editingId ? "Edit application" : "Track an application"}</h2>
                 <p className="mt-1 text-sm text-slate-500">Add a role to your application pipeline.</p>
               </div>
               <button aria-label="Close dialog" onClick={() => setShowModal(false)} className="rounded-lg px-3 py-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">✕</button>
@@ -564,7 +610,7 @@ export default function Home() {
               </div>
               <div className="flex gap-3 pt-3">
                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? "Saving..." : "Save application"}</button>
+                <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">{saving ? "Saving..." : editingId ? "Save changes" : "Save application"}</button>
               </div>
             </form>
           </div>
